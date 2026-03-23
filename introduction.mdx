@@ -1,0 +1,111 @@
+---
+title: "Introduction"
+description: "Overview of the Ejercicio Biblioteca library management system"
+---
+
+Ejercicio Biblioteca is a desktop library management system built for academic institutions. It provides a unified interface for cataloguing books, managing student borrowing, tracking reservations, recording donations, and monitoring reading activity — all backed by a local SQLite database.
+
+## Architecture
+
+The application follows the **Model-View-Controller (MVC)** pattern, separating data access, business logic, and presentation into three distinct layers.
+
+```
+EjercicioBiblioteca/
+├── Modelo/
+│   ├── libro.py         # Book entity
+│   ├── usuario.py       # User entity
+│   ├── prestamo.py      # Loan entity
+│   └── conexion.py      # Database connection and schema bootstrap
+├── Controlador/
+│   └── controlador.py   # ControladorBiblioteca — all business logic
+└── VistaTk/
+    ├── sidebar.py
+    ├── libros.py
+    ├── usuarios.py
+    ├── prestamos.py
+    ├── reservas.py
+    ├── donaciones.py
+    └── ranking.py
+```
+
+| Layer | Responsibility |
+|---|---|
+| **Modelo** | SQLite schema definitions, `crear_conexion()`, and entity models |
+| **Controlador** | `ControladorBiblioteca` class — all CRUD operations and business rules |
+| **VistaTk** | CustomTkinter views; each module renders one section of the sidebar |
+
+The `App` class in `main_tk.py` is the application entry point. It initialises the database via `crear_conexion()`, builds the main window, and delegates section rendering to `cambiar_vista()`.
+
+## Technology stack
+
+| Technology | Role |
+|---|---|
+| **Python 3.8+** | Application runtime |
+| **CustomTkinter** | Modern Tkinter wrapper for the desktop UI |
+| **SQLite 3** | Embedded relational database (`biblioteca.db`) |
+| **qrcode / Pillow** | QR code generation for book and loan records |
+
+The UI uses CustomTkinter's `dark` appearance mode with the `blue` default color theme. All widgets share a centralised color palette defined in `main_tk.py`:
+
+<Color variant="table">
+  <Color.Row title="Backgrounds">
+    <Color.Item name="bg_principal" value="#0f0f17" />
+    <Color.Item name="bg_sidebar" value="#13131f" />
+    <Color.Item name="bg_card" value="#1a1a2e" />
+    <Color.Item name="bg_hover" value="#22223b" />
+  </Color.Row>
+  <Color.Row title="Accent">
+    <Color.Item name="acento" value="#7c3aed" />
+    <Color.Item name="acento_claro" value="#a78bfa" />
+    <Color.Item name="acento2" value="#06b6d4" />
+  </Color.Row>
+  <Color.Row title="Text">
+    <Color.Item name="texto" value="#e2e8f0" />
+    <Color.Item name="texto_dim" value="#94a3b8" />
+    <Color.Item name="borde" value="#2d2d44" />
+  </Color.Row>
+  <Color.Row title="Status">
+    <Color.Item name="exito" value="#10b981" />
+    <Color.Item name="alerta" value="#f59e0b" />
+    <Color.Item name="error" value="#ef4444" />
+  </Color.Row>
+</Color>
+
+## Module overview
+
+<CardGroup cols={3}>
+  <Card title="Books" icon="book" href="/features/books">
+    Catalogue management: register, edit, search by ISBN, and track availability across the `libro` table.
+  </Card>
+  <Card title="Users" icon="user" href="/features/users">
+    Student and patron management: register users with name and academic programme via the `usuario` table.
+  </Card>
+  <Card title="Loans" icon="arrow-right-arrow-left" href="/features/loans">
+    Issue and return books, calculate overdue fines ($1.00/day after 7 days), and store records in `prestamo` and `multa`.
+  </Card>
+  <Card title="Reservations" icon="bookmark" href="/features/reservations">
+    Reserve unavailable books. Duplicate reservation prevention enforced at the controller layer via the `reserva` table.
+  </Card>
+  <Card title="Donations" icon="gift" href="/features/donations">
+    Accept donated books: atomically creates a `libro` record and a `donacion` record in a single transaction.
+  </Card>
+  <Card title="Ranking" icon="trophy" href="/features/ranking">
+    Aggregated reading leaderboard showing the most-borrowed titles, computed from `prestamo` JOIN `libro`.
+  </Card>
+</CardGroup>
+
+## ACID guarantees
+
+Each mutating operation in `ControladorBiblioteca` is explicitly documented with the ACID properties it enforces.
+
+**Atomicity** — Multi-step operations commit together or roll back entirely. For example, `realizar_prestamo()` inserts a row into `prestamo` and sets `disponible = 0` on the corresponding `libro` row within a single `conn.commit()`. If either step raises an exception, `conn.rollback()` is called and no partial state is written. The same pattern applies to `devolver_libro()` (marks returned, frees book, inserts fine) and `registrar_donacion()` (creates book and donation record together).
+
+**Consistency** — Business rules are checked before any write. `realizar_prestamo()` queries `disponible` on the book before inserting the loan. `eliminar_usuario()` and `eliminar_libro()` query for active (non-returned) loans and abort with an error message rather than orphaning records. `reservar_libro()` prevents duplicate pending reservations for the same user/book pair.
+
+**Isolation** — SQLite serialises concurrent writes by default. Each controller method opens its own connection, executes its statements, commits, and closes, keeping transaction scope minimal.
+
+**Durability** — Every successful path ends with `conn.commit()` before `conn.close()`. Foreign keys are activated on every connection with `PRAGMA foreign_keys = ON`, ensuring referential integrity is enforced at the database engine level in addition to the application-level checks.
+
+<Info>
+  The fine calculation logic in `calcular_multa()` parses loan dates using `"%d/%m/%Y"` format. Loans outstanding for more than 7 days accrue a fine of **$1.00 per extra day**. Loans approaching the 7-day threshold (6 or more days elapsed) surface in `obtener_prestamos_por_vencer()` as early alerts.
+</Info>

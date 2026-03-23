@@ -1,0 +1,216 @@
+---
+title: "Loan system"
+description: "Book loans and returns"
+---
+
+A loan (`prestamo`) represents a book being borrowed by a user. The loan lifecycle moves through three states:
+
+<Steps>
+  <Step title="Register">
+    A new loan is created with `devuelto = 0`. The book's `disponible` flag is set to `0` atomically in the same transaction.
+  </Step>
+  <Step title="Active">
+    The loan remains active until the book is either returned or the loan is cancelled. The table shows elapsed days and any accrued fine.
+  </Step>
+  <Step title="Returned or cancelled">
+    **Returned** (`devolver_libro`): `devuelto` is set to `1`, `disponible` is restored to `1`, and a `multa` record is inserted if the loan exceeded the grace period — all in one transaction.
+
+    **Cancelled** (`cancelar_prestamo`): the loan record is deleted entirely, any associated fine record is deleted, and `disponible` is restored to `1` — all in one transaction.
+  </Step>
+</Steps>
+
+## Stats dashboard
+
+The `VistaPrestamos` view shows four stat cards at the top of the screen, recalculated every time the table is refreshed:
+
+<CardGroup cols={4}>
+  <Card title="Total">
+    Total number of loan records (all statuses).
+  </Card>
+  <Card title="Activos">
+    Loans where `devuelto = 0` — books still out.
+  </Card>
+  <Card title="Con Multa">
+    Loans with a calculated fine greater than `$0.00` (includes both active and returned).
+  </Card>
+  <Card title="Multa Total">
+    Sum of all outstanding fine amounts across all loans, displayed as `$X.XX`.
+  </Card>
+</CardGroup>
+
+## Operations
+
+### realizar_prestamo
+
+`realizar_prestamo(usuario_id, libro_id, fecha)` registers a new loan. The date must be in `DD/MM/YYYY` format. The controller first verifies availability, then inserts the loan and updates the book in a single transaction.
+
+```python
+def realizar_prestamo(self, usuario_id, libro_id, fecha):
+    """
+    ACID – Atomicidad: inserta el préstamo Y actualiza disponibilidad
+    en una sola transacción. Si una falla, ambas revierten.
+    """
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+
+        # Verificar disponibilidad (Consistencia)
+        cursor.execute("SELECT disponible FROM libro WHERE id = ?", (libro_id,))
+        row = cursor.fetchone()
+        if not row or row[0] == 0:
+            conn.close()
+            return False, "El libro no está disponible."
+
+        cursor.execute("""
+            INSERT INTO prestamo (usuario_id, libro_id, fecha, devuelto)
+            VALUES (?, ?, ?, 0)
+        """, (usuario_id, libro_id, fecha))
+
+        cursor.execute(
+            "UPDATE libro SET disponible = 0 WHERE id = ?", (libro_id,)
+        )
+
+        conn.commit()
+        conn.close()
+        return True, "Préstamo registrado correctamente."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error: {e}"
+```
+
+### devolver_libro
+
+`devolver_libro(prestamo_id, libro_id)` closes a loan. Fine calculation, status update, and book availability update all occur in one transaction.
+
+```python
+def devolver_libro(self, prestamo_id, libro_id):
+    """
+    ACID – Atomicidad: marca devuelto, libera libro e inserta multa
+    en una sola transacción. Ningún paso parcial queda persistido.
+    """
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT fecha, devuelto FROM prestamo WHERE id = ?", (prestamo_id,))
+        resultado = cursor.fetchone()
+
+        if not resultado:
+            conn.close()
+            return False, "Préstamo no encontrado."
+        if resultado[1] == 1:
+            conn.close()
+            return False, "Este préstamo ya fue devuelto."
+
+        fecha = resultado[0]
+        dias, multa = self.calcular_multa(fecha)
+
+        if multa > 0:
+            cursor.execute("""
+                INSERT INTO multa (prestamo_id, dias_retraso, monto)
+                VALUES (?, ?, ?)
+            """, (prestamo_id, dias, multa))
+
+        cursor.execute(
+            "UPDATE prestamo SET devuelto = 1 WHERE id = ?", (prestamo_id,)
+        )
+        cursor.execute(
+            "UPDATE libro SET disponible = 1 WHERE id = ?", (libro_id,)
+        )
+
+        conn.commit()
+        conn.close()
+        return True, f"Libro devuelto. {'Multa: $' + str(multa) if multa > 0 else 'Sin multa.'}"
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error: {e}"
+```
+
+### cancelar_prestamo
+
+`cancelar_prestamo(prestamo_id)` completely removes a non-returned loan. It can only be called on loans where `devuelto = 0`.
+
+```python
+def cancelar_prestamo(self, prestamo_id):
+    """
+    ACID – Atomicidad: al cancelar, revierte disponibilidad del libro
+    y elimina multa asociada si existe, todo en una transacción.
+    Solo se puede cancelar un préstamo NO devuelto.
+    """
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT libro_id, devuelto FROM prestamo WHERE id = ?",
+            (prestamo_id,)
+        )
+        row = cursor.fetchone()
+
+        if not row:
+            conn.close()
+            return False, "Préstamo no encontrado."
+        if row[1] == 1:
+            conn.close()
+            return False, "No se puede cancelar un préstamo ya devuelto."
+
+        libro_id = row[0]
+
+        # Transacción completa
+        cursor.execute("DELETE FROM multa WHERE prestamo_id = ?", (prestamo_id,))
+        cursor.execute("DELETE FROM prestamo WHERE id = ?", (prestamo_id,))
+        cursor.execute("UPDATE libro SET disponible = 1 WHERE id = ?", (libro_id,))
+
+        conn.commit()
+        conn.close()
+        return True, "Préstamo cancelado y libro liberado."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error: {e}"
+```
+
+### calcular_multa
+
+`calcular_multa(fecha)` computes elapsed days and the fine amount from the loan date to today. The date must be in `DD/MM/YYYY` format.
+
+```python
+def calcular_multa(self, fecha):
+    try:
+        fecha_actual  = datetime.now()
+        fecha_prestamo = datetime.strptime(fecha, "%d/%m/%Y")
+        dias = (fecha_actual - fecha_prestamo).days
+        if dias > 7:
+            return dias, round((dias - 7) * 1.0, 2)
+        return dias, 0
+    except Exception:
+        return 0, 0
+```
+
+<Info>
+  The first 7 days of any loan are free. A fine only accrues for each day beyond the 7-day grace period, at a rate of $1.00 per day: `monto = (dias - 7) * 1.0`. A loan of 10 days produces a fine of $3.00.
+</Info>
+
+### obtener_prestamos_por_vencer
+
+`obtener_prestamos_por_vencer()` returns a list of book titles whose active loans have reached or exceeded 6 days. This gives librarians a one-day warning before fines begin.
+
+```python
+def obtener_prestamos_por_vencer(self):
+    prestamos = self.obtener_prestamos()
+    alertas = []
+    for p in prestamos:
+        if not p[4]:  # devuelto == 0
+            dias, _ = self.calcular_multa(p[3])
+            if dias >= 6:
+                alertas.append(p[2])  # titulo
+    return alertas
+```
+
+The **Alertas** button in `VistaPrestamos` calls this method and displays the resulting titles in a warning dialog.
+
+<Note>
+  All multi-step loan operations (`realizar_prestamo`, `devolver_libro`, `cancelar_prestamo`) are wrapped in explicit SQLite transactions. If any step raises an exception, `conn.rollback()` is called and no partial state is persisted — the database remains consistent.
+</Note>

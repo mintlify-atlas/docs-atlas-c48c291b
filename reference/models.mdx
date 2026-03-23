@@ -1,0 +1,129 @@
+---
+title: "Domain models"
+description: "Python model classes: Libro, Usuario, Prestamo"
+---
+
+The `Modelo` layer contains lightweight Python classes that represent the core domain entities of the library system. These classes carry in-memory state only — they do not interact with the database directly.
+
+<Note>
+  These model classes are lightweight value objects. All persistence — inserts, updates, deletes, and queries — is handled exclusively by `ControladorBiblioteca` in `Controlador/controlador.py`. The model classes are not required by the controller; the controller works directly with the SQLite database.
+</Note>
+
+---
+
+## Libro
+
+Represents a book in the catalog. A class-level counter auto-assigns an in-memory code to each new instance.
+
+```python
+class Libro:
+
+    contador = 1
+
+    def __init__(self, titulo, autor):
+        self.codigo = Libro.contador
+        Libro.contador += 1
+
+        self.titulo = titulo
+        self.autor = autor
+        self.disponible = True
+```
+
+### Class attributes
+
+| Attribute | Type | Description |
+|---|---|---|
+| `contador` | `int` | Class-level counter. Starts at `1`. Incremented by each call to `__init__`. |
+
+### Instance attributes
+
+| Attribute | Type | Description |
+|---|---|---|
+| `codigo` | `int` | In-memory identifier assigned from `Libro.contador` before it is incremented. |
+| `titulo` | `str` | Book title, passed to the constructor. |
+| `autor` | `str` | Author name, passed to the constructor. |
+| `disponible` | `bool` | Availability flag. Always initialised to `True`. |
+
+---
+
+## Usuario
+
+Represents a library member. A class-level counter auto-assigns an in-memory identifier to each new instance.
+
+```python
+class Usuario:
+
+    contador = 1
+
+    def __init__(self, nombre, carrera):
+        self.id = Usuario.contador
+        Usuario.contador += 1
+
+        self.nombre = nombre
+        self.carrera = carrera
+```
+
+### Class attributes
+
+| Attribute | Type | Description |
+|---|---|---|
+| `contador` | `int` | Class-level counter. Starts at `1`. Incremented by each call to `__init__`. |
+
+### Instance attributes
+
+| Attribute | Type | Description |
+|---|---|---|
+| `id` | `int` | In-memory identifier assigned from `Usuario.contador` before it is incremented. |
+| `nombre` | `str` | Member's full name, passed to the constructor. |
+| `carrera` | `str` | Member's academic career or programme, passed to the constructor. |
+
+---
+
+## Prestamo
+
+Represents a loan. Holds references to an existing `Usuario` and `Libro` object rather than raw IDs. Provides a `mostrar_prestamo()` method for printing loan details to the console.
+
+```python
+class Prestamo:
+
+    def __init__(self, usuario, libro, fecha):
+        self.usuario = usuario
+        self.libro = libro
+        self.fecha = fecha
+        self.devuelto = False
+
+    def mostrar_prestamo(self):
+
+        estado = "Devuelto" if self.devuelto else "Prestado"
+
+        print("Usuario:", self.usuario.nombre)
+        print("Libro:", self.libro.titulo)
+        print("Fecha:", self.fecha)
+        print("Estado:", estado)
+        print("-----------------------")
+```
+
+### Instance attributes
+
+| Attribute | Type | Description |
+|---|---|---|
+| `usuario` | `Usuario` | Reference to the borrowing `Usuario` instance. |
+| `libro` | `Libro` | Reference to the borrowed `Libro` instance. |
+| `fecha` | `str` | Loan date string. |
+| `devuelto` | `bool` | Return flag. Always initialised to `False`. |
+
+### Methods
+
+#### `mostrar_prestamo()`
+
+Prints the loan details to standard output. Derives the `estado` label from `self.devuelto`: `"Devuelto"` if `True`, `"Prestado"` otherwise.
+
+**Output format:**
+
+```
+Usuario: <nombre>
+Libro: <titulo>
+Fecha: <fecha>
+Estado: Prestado | Devuelto
+-----------------------
+```

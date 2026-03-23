@@ -1,0 +1,103 @@
+---
+title: "CSV bulk import"
+description: "Import books in bulk from a CSV file"
+---
+
+The `importar_csv(ruta)` function lets you add multiple books to the library catalog in a single operation by reading them from a plain CSV file. Each row in the file becomes one book record inserted into the `libro` table with `disponible = 1`.
+
+## CSV format
+
+The file must have exactly two columns per row: `titulo` and `autor`. No header row is required. Any row with fewer than two fields is silently skipped.
+
+```csv
+Don Quijote,Miguel de Cervantes
+Cien años de soledad,Gabriel García Márquez
+El principito,Antoine de Saint-Exupéry
+```
+
+<Note>
+  The CSV format only supports `titulo` and `autor`. Fields like `isbn` and `genero` are **not** included — imported books will have those columns left empty in the database.
+</Note>
+
+## Source code
+
+```python utils/csv_import.py
+import csv
+import sqlite3
+
+
+def importar_csv(ruta):
+
+    try:
+        conn = sqlite3.connect("biblioteca.db")
+        cursor = conn.cursor()
+
+        with open(ruta, newline='', encoding='utf-8') as f:
+            reader = csv.reader(f)
+
+            for row in reader:
+                # validar que tenga datos
+                if len(row) < 2:
+                    continue
+
+                titulo, autor = row
+
+                cursor.execute(
+                    "INSERT INTO libro (titulo, autor, disponible) VALUES (?, ?, 1)",
+                    (titulo, autor)
+                )
+
+        conn.commit()
+        conn.close()
+
+        print("✅ Libros importados correctamente")
+
+    except Exception as e:
+        print("❌ Error al importar CSV:", e)
+```
+
+## Import workflow
+
+<Steps>
+  <Step title="Prepare the CSV file">
+    Create a `.csv` file with one book per line. Each line must contain the title and author separated by a comma. Save the file with UTF-8 encoding to preserve accented characters.
+
+    ```csv
+    Don Quijote,Miguel de Cervantes
+    Cien años de soledad,Gabriel García Márquez
+    El principito,Antoine de Saint-Exupéry
+    ```
+  </Step>
+  <Step title="Call importar_csv(ruta)">
+    Pass the path to your CSV file as a string argument. The function connects to `biblioteca.db` in the current working directory and inserts each valid row.
+
+    ```python
+    from utils.csv_import import importar_csv
+
+    importar_csv("libros.csv")
+    ```
+
+    A confirmation message is printed to stdout on success, or an error message if something goes wrong.
+  </Step>
+  <Step title="Verify books appeared in the catalog">
+    Open the application and navigate to the book catalog, or query the database directly to confirm the new records are present.
+
+    ```python
+    import sqlite3
+
+    conn = sqlite3.connect("biblioteca.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT titulo, autor FROM libro ORDER BY id DESC LIMIT 10")
+    print(cursor.fetchall())
+    conn.close()
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  `importar_csv` connects to `biblioteca.db` in the current working directory. If that file does not exist, the import will fail silently — the exception is caught and printed, but no error is raised to the caller. Make sure you run the function from the correct directory where the database file is located.
+</Warning>
+
+<Tip>
+  Always save your CSV file with **UTF-8 encoding**. The function opens the file with `encoding='utf-8'`, so characters like `á`, `é`, `ñ`, or `ü` will be read correctly when the file is UTF-8 encoded.
+</Tip>

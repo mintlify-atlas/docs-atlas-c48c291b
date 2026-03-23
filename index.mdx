@@ -1,97 +1,65 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Ejercicio Biblioteca"
+description: "A desktop library management system built with Python, CustomTkinter, and SQLite — manage books, users, loans, reservations, and donations from a single dark-themed interface."
 ---
 
-## Setting up
-
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get the application running on your machine in minutes.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Features overview" icon="grid-2" href="/introduction">
+    Explore all modules: loans, reservations, donations, and more.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Controller API" icon="code" href="/reference/controller">
+    Full reference for every method in `ControladorBiblioteca`.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Database schema" icon="database" href="/reference/database-schema">
+    Entity-relationship model and table definitions.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What is Ejercicio Biblioteca?
 
-Everything you need to create world-class documentation.
+Ejercicio Biblioteca is a complete library management system for educational institutions. It is built on top of Python using the **CustomTkinter** UI framework and persists all data in a local **SQLite** database.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+The system follows a **Model-View-Controller (MVC)** architecture:
 
-## Need inspiration?
+- **Modelo** — `Libro`, `Usuario`, `Prestamo` domain objects and `conexion.py` for database bootstrap.
+- **Controlador** — `ControladorBiblioteca` provides all business-logic operations as reusable methods.
+- **VistaTk** — CustomTkinter views for every module, each consuming the controller directly.
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+## Key capabilities
+
+<CardGroup cols={3}>
+  <Card title="Book catalog" icon="book" href="/features/books">
+    Register, edit, and search books by ISBN with uniqueness enforcement.
+  </Card>
+  <Card title="User management" icon="user" href="/features/users">
+    Track library members by name and academic career.
+  </Card>
+  <Card title="Loan system" icon="book-open" href="/features/loans">
+    ACID-compliant loans with automatic availability updates.
+  </Card>
+  <Card title="Reservations" icon="bookmark" href="/features/reservations">
+    Queue books for unavailable titles with duplicate prevention.
+  </Card>
+  <Card title="Donations" icon="gift" href="/features/donations">
+    Accept donated books and link them to the catalog atomically.
+  </Card>
+  <Card title="Reading ranking" icon="trophy" href="/features/ranking">
+    Surface the most-borrowed titles sorted by loan count.
+  </Card>
+</CardGroup>
+
+## Design principles
+
+<Info>
+  Every write operation in Ejercicio Biblioteca is wrapped in a SQLite transaction. If any step fails, the entire operation is rolled back — guaranteeing data consistency at all times.
+</Info>
+
+| Principle | How it is applied |
+|---|---|
+| **Atomicity** | Loans update book availability in one transaction; donations create both the book and the donation record together |
+| **Consistency** | ISBN uniqueness, active-loan checks before deletion, duplicate reservation prevention |
+| **Referential integrity** | `PRAGMA foreign_keys = ON` is enforced on every connection |
+| **Isolation** | Each operation opens and closes its own connection |

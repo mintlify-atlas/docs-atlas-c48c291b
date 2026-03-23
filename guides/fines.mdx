@@ -1,0 +1,73 @@
+---
+title: "Fines and overdue loans"
+description: "How overdue fines are calculated and stored"
+---
+
+The library system automatically calculates fines when a book is returned late. Loans that exceed seven days incur a daily charge for each day beyond the grace period.
+
+## Fine calculation
+
+The `calcular_multa(fecha)` method in `ControladorBiblioteca` computes the number of elapsed days and the fine amount given the loan date.
+
+```python Controlador/controlador.py
+def calcular_multa(self, fecha):
+    try:
+        fecha_actual  = datetime.now()
+        fecha_prestamo = datetime.strptime(fecha, "%d/%m/%Y")
+        dias = (fecha_actual - fecha_prestamo).days
+        if dias > 7:
+            return dias, round((dias - 7) * 1.0, 2)
+        return dias, 0
+    except Exception:
+        return 0, 0
+```
+
+The date string must use the format `DD/MM/YYYY` (e.g. `"23/03/2026"`). The formula is:
+
+- `dias = (today − loan_date).days`
+- If `dias > 7`: `monto = (dias − 7) × $1.00`
+- If `dias ≤ 7`: `monto = $0` (no fine)
+
+<Info>
+  The system includes a **7-day grace period**. A loan returned on day 7 or earlier never generates a fine. Fines only begin accruing from day 8 onward, at a rate of $1.00 per additional day.
+</Info>
+
+## Fine storage
+
+When `devolver_libro(prestamo_id, libro_id)` is called, it computes the fine via `calcular_multa`. If `multa > 0`, a new record is inserted into the `multa` table before the loan is marked as returned and the book is made available again. All three operations occur in a single transaction.
+
+### multa table schema
+
+```sql
+CREATE TABLE IF NOT EXISTS multa (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    prestamo_id INTEGER,
+    dias_retraso INTEGER,
+    monto REAL,
+    FOREIGN KEY(prestamo_id) REFERENCES prestamo(id)
+);
+```
+
+Each row records the loan it belongs to (`prestamo_id`), the total number of days elapsed (`dias_retraso`), and the calculated fine amount in dollars (`monto`).
+
+## Approaching due-date alerts
+
+The `obtener_prestamos_por_vencer()` method returns the titles of all active (not yet returned) loans where the elapsed days are **6 or more**. This covers loans that are one day away from the grace period expiring, as well as already-overdue loans.
+
+```python Controlador/controlador.py
+def obtener_prestamos_por_vencer(self):
+    prestamos = self.obtener_prestamos()
+    alertas = []
+    for p in prestamos:
+        if not p[4]:
+            dias, _ = self.calcular_multa(p[3])
+            if dias >= 6:
+                alertas.append(p[2])
+    return alertas
+```
+
+The method iterates over all loans, skips any that are already returned (`p[4]` is the `devuelto` flag), and collects the book title (`p[2]`) for each loan at or past 6 days.
+
+<Note>
+  Fine records are **deleted** if a loan is cancelled before the book is returned. `cancelar_prestamo(prestamo_id)` removes both the `multa` row and the `prestamo` row in the same atomic transaction, so no orphaned fine records are left in the database.
+</Note>

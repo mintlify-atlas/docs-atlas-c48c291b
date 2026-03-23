@@ -1,0 +1,158 @@
+---
+title: "Book catalog"
+description: "Managing books in the library system"
+---
+
+The book catalog is the central registry of all library materials. Each book record stores the fields required to identify, classify, and track availability.
+
+| Field | Type | Constraint |
+|---|---|---|
+| `id` | INTEGER | Primary key, auto-increment |
+| `titulo` | TEXT | NOT NULL |
+| `autor` | TEXT | NOT NULL |
+| `isbn` | TEXT | UNIQUE (nullable) |
+| `genero` | TEXT | Optional |
+| `disponible` | INTEGER | `1` = available, `0` = on loan |
+
+## UI: VistaLibros
+
+The `VistaLibros` view is a `CTkFrame` that provides the full book management interface.
+
+**Search and filter bar** — a text entry allows live filtering by title, author, or ISBN as the user types (`<KeyRelease>` event). A genre combo box (`Todos` + the 9 available genres) adds a secondary filter. Both filters are applied client-side against a cached list of all books.
+
+**Book table** — a `ttk.Treeview` showing columns: ID, Título, Autor, ISBN, Género, and Disponible. Available books are highlighted in green; unavailable books in a muted tone. A row count label is kept in sync after every data load.
+
+**Action buttons** — the toolbar on the right side of the search bar provides:
+
+- **Agregar** — opens the reusable add/edit form for a new book
+- **Editar** — opens the same form pre-populated with the selected row
+- **Eliminar** — prompts for confirmation, then calls the controller
+- **CSV** — bulk-imports books from a CSV file via `filedialog`
+- **Refresh** — reloads the table from the database
+
+## Operations
+
+### Registrar libro
+
+`registrar_libro(titulo, autor, isbn, genero)` inserts a new book with `disponible = 1`. Returns a `(bool, message)` tuple.
+
+```python
+def registrar_libro(self, titulo, autor, isbn="", genero=""):
+    """ACID: Inserción atómica. Si falla el ISBN duplicado, revierte solo."""
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO libro (titulo, autor, isbn, genero, disponible)
+            VALUES (?, ?, ?, ?, 1)
+        """, (titulo, autor, isbn or None, genero))
+        conn.commit()
+        conn.close()
+        return True, "Libro registrado correctamente."
+    except sqlite3.IntegrityError:
+        return False, "Ya existe un libro con ese ISBN."
+    except Exception as e:
+        return False, f"Error: {e}"
+```
+
+<Note>
+  ISBN is stored as `NULL` when left blank, which means multiple books can have no ISBN without violating the `UNIQUE` constraint. The constraint only fires when two non-null ISBNs are identical.
+</Note>
+
+### Editar libro
+
+`editar_libro(libro_id, titulo, autor, isbn, genero)` updates all fields atomically. Before writing, it checks that the new ISBN is not already assigned to a *different* book.
+
+```python
+def editar_libro(self, libro_id, titulo, autor, isbn, genero):
+    """
+    ACID – Atomicidad: se actualizan todos los campos o ninguno.
+    ACID – Consistencia: valida ISBN único antes de confirmar.
+    """
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+
+        # Verificar que el ISBN no lo use OTRO libro
+        if isbn:
+            cursor.execute(
+                "SELECT id FROM libro WHERE isbn = ? AND id != ?",
+                (isbn, libro_id)
+            )
+            if cursor.fetchone():
+                conn.close()
+                return False, "Ese ISBN ya está asignado a otro libro."
+
+        cursor.execute("""
+            UPDATE libro
+            SET titulo = ?, autor = ?, isbn = ?, genero = ?
+            WHERE id = ?
+        """, (titulo, autor, isbn or None, genero, libro_id))
+
+        conn.commit()
+        conn.close()
+        return True, "Libro actualizado correctamente."
+    except Exception as e:
+        return False, f"Error: {e}"
+```
+
+### Eliminar libro
+
+`eliminar_libro(libro_id)` removes a book and all its related reservations in a single transaction.
+
+```python
+def eliminar_libro(self, libro_id):
+    """
+    ACID – Consistencia: no permite eliminar si tiene préstamos activos.
+    ACID – Atomicidad: elimina reservas relacionadas en la misma transacción.
+    """
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+
+        # Verificar préstamos activos (no devueltos)
+        cursor.execute("""
+            SELECT COUNT(*) FROM prestamo
+            WHERE libro_id = ? AND devuelto = 0
+        """, (libro_id,))
+        activos = cursor.fetchone()[0]
+
+        if activos > 0:
+            conn.close()
+            return False, "No se puede eliminar: el libro tiene préstamos activos."
+
+        # Transacción: eliminar reservas y luego el libro
+        cursor.execute("DELETE FROM reserva WHERE libro_id = ?", (libro_id,))
+        cursor.execute("DELETE FROM libro WHERE id = ?", (libro_id,))
+
+        conn.commit()
+        conn.close()
+        return True, "Libro eliminado correctamente."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error: {e}"
+```
+
+<Warning>
+  A book cannot be deleted while it has active (non-returned) loans. The check runs before any deletion. If any active loan exists, the method returns `(False, "No se puede eliminar: el libro tiene préstamos activos.")` and nothing is changed. Reservations linked to the book are deleted atomically in the same transaction as the book record.
+</Warning>
+
+### Buscar por ISBN
+
+`buscar_por_isbn(isbn)` returns all books matching an exact ISBN value.
+
+```python
+def buscar_por_isbn(self, isbn):
+    conn = self.conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, titulo, autor, isbn, genero, disponible
+        FROM libro WHERE isbn = ?
+    """, (isbn,))
+    datos = cursor.fetchall()
+    conn.close()
+    return datos
+```
+
+The search is exact-match. The UI's live search bar performs a client-side case-insensitive substring filter on the cached list instead.

@@ -1,0 +1,61 @@
+---
+title: "Reading ranking"
+description: "Most-borrowed books ranked by loan count"
+---
+
+The ranking screen shows which books have been borrowed most often. It aggregates all `prestamo` records per book, regardless of whether the loans have been returned or are still active, and sorts them in descending order.
+
+## UI: VistaRanking
+
+The `VistaRanking` view is divided into two sections:
+
+**Top 3 podium** — the three most-borrowed books are displayed as medal cards (gold, silver, bronze) at the top of the screen. Each card shows the medal emoji, book title, author, and total loan count.
+
+**Full ranking table** — a `ttk.Treeview` below the podium lists all books that have at least one loan, with columns: #, Título, Autor, Veces Prestado. The top three rows are highlighted in gold, silver, and bronze colors respectively.
+
+An **Actualizar Ranking** button reloads both the podium and the table from the database on demand.
+
+## Operations
+
+### ranking_libros
+
+`ranking_libros()` returns `(titulo, autor, total_prestamos)` tuples ordered from most to least borrowed.
+
+```python
+def ranking_libros(self):
+    conn = self.conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT l.titulo, l.autor, COUNT(*) as total
+        FROM prestamo p
+        JOIN libro l ON p.libro_id = l.id
+        GROUP BY l.id
+        ORDER BY total DESC
+    """)
+    datos = cursor.fetchall()
+    conn.close()
+    return datos
+```
+
+**SQL breakdown:**
+
+```sql
+SELECT l.titulo, l.autor, COUNT(*) AS total
+FROM prestamo p
+JOIN libro l ON p.libro_id = l.id
+GROUP BY l.id
+ORDER BY total DESC
+```
+
+| Clause | Purpose |
+|---|---|
+| `JOIN libro l ON p.libro_id = l.id` | Resolves book title and author from the loan record |
+| `GROUP BY l.id` | Aggregates all loans per unique book |
+| `COUNT(*)` | Counts every loan row for that book |
+| `ORDER BY total DESC` | Places the most-borrowed book first |
+
+<Info>
+  The ranking counts **all loans**, including those that have already been returned (`devuelto = 1`). It reflects cumulative borrowing history, not current demand. A book that was borrowed 20 times and returned each time ranks higher than one currently on its first active loan.
+</Info>
+
+Books with zero loans never appear in the ranking because the `JOIN` only matches books that have at least one `prestamo` row.

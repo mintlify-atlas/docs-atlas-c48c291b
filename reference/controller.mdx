@@ -1,0 +1,723 @@
+---
+title: "Controller API"
+description: "Complete reference for ControladorBiblioteca methods"
+---
+
+`ControladorBiblioteca` in `Controlador/controlador.py` is the single entry point for all database operations. Each method opens its own SQLite connection, performs its work, and closes the connection before returning. All write operations use explicit transactions — on failure, the connection is rolled back before closing.
+
+<Note>
+  `PRAGMA foreign_keys = ON` is set on every connection opened by `conectar()`, ensuring referential integrity is enforced for all operations.
+</Note>
+
+---
+
+## Connection
+
+### `conectar()`
+
+Opens a connection to `biblioteca.db` and activates foreign key enforcement.
+
+```python
+def conectar(self):
+    conn = sqlite3.connect("biblioteca.db")
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+```
+
+**Returns:** `sqlite3.Connection`
+
+---
+
+## Books
+
+### `registrar_libro(titulo, autor, isbn="", genero="")`
+
+Inserts a new book into the `libro` table with `disponible = 1`.
+
+```python
+def registrar_libro(self, titulo, autor, isbn="", genero=""):
+    """ACID: Inserción atómica. Si falla el ISBN duplicado, revierte solo."""
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO libro (titulo, autor, isbn, genero, disponible)
+            VALUES (?, ?, ?, ?, 1)
+        """, (titulo, autor, isbn or None, genero))
+        conn.commit()
+        conn.close()
+        return True, "Libro registrado correctamente."
+    except sqlite3.IntegrityError:
+        return False, "Ya existe un libro con ese ISBN."
+    except Exception as e:
+        return False, f"Error: {e}"
+```
+
+<ParamField path="body.titulo" type="string" required>
+  Book title.
+</ParamField>
+
+<ParamField path="body.autor" type="string" required>
+  Author name.
+</ParamField>
+
+<ParamField path="body.isbn" type="string" default='""'>
+  ISBN. An empty string is stored as `NULL` to avoid false uniqueness conflicts. If a non-empty value is supplied, it must be unique across the table.
+</ParamField>
+
+<ParamField path="body.genero" type="string" default='""'>
+  Literary genre. Stored as-is.
+</ParamField>
+
+**Returns:** `(True, "Libro registrado correctamente.")` on success, or `(False, message)` on error.
+
+<Warning>
+  Returns `(False, "Ya existe un libro con ese ISBN.")` when an ISBN uniqueness violation is detected.
+</Warning>
+
+---
+
+### `editar_libro(libro_id, titulo, autor, isbn, genero)`
+
+Updates all editable fields of an existing book in a single atomic operation.
+
+```python
+def editar_libro(self, libro_id, titulo, autor, isbn, genero):
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+
+        # Verificar que el ISBN no lo use OTRO libro
+        if isbn:
+            cursor.execute(
+                "SELECT id FROM libro WHERE isbn = ? AND id != ?",
+                (isbn, libro_id)
+            )
+            if cursor.fetchone():
+                conn.close()
+                return False, "Ese ISBN ya está asignado a otro libro."
+
+        cursor.execute("""
+            UPDATE libro
+            SET titulo = ?, autor = ?, isbn = ?, genero = ?
+            WHERE id = ?
+        """, (titulo, autor, isbn or None, genero, libro_id))
+
+        conn.commit()
+        conn.close()
+        return True, "Libro actualizado correctamente."
+    except Exception as e:
+        return False, f"Error: {e}"
+```
+
+<ParamField path="body.libro_id" type="integer" required>
+  ID of the book to update.
+</ParamField>
+
+<ParamField path="body.titulo" type="string" required>
+  New title.
+</ParamField>
+
+<ParamField path="body.autor" type="string" required>
+  New author name.
+</ParamField>
+
+<ParamField path="body.isbn" type="string" required>
+  New ISBN. Checked against all other books before saving. An empty string is stored as `NULL`.
+</ParamField>
+
+<ParamField path="body.genero" type="string" required>
+  New genre.
+</ParamField>
+
+**Returns:** `(True, "Libro actualizado correctamente.")` on success, or `(False, message)` on error.
+
+---
+
+### `eliminar_libro(libro_id)`
+
+Deletes a book and its associated reservations in one transaction. Blocked if the book has active (unreturned) loans.
+
+```python
+def eliminar_libro(self, libro_id):
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT COUNT(*) FROM prestamo
+            WHERE libro_id = ? AND devuelto = 0
+        """, (libro_id,))
+        activos = cursor.fetchone()[0]
+
+        if activos > 0:
+            conn.close()
+            return False, "No se puede eliminar: el libro tiene préstamos activos."
+
+        cursor.execute("DELETE FROM reserva WHERE libro_id = ?", (libro_id,))
+        cursor.execute("DELETE FROM libro WHERE id = ?", (libro_id,))
+
+        conn.commit()
+        conn.close()
+        return True, "Libro eliminado correctamente."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error: {e}"
+```
+
+<ParamField path="body.libro_id" type="integer" required>
+  ID of the book to delete.
+</ParamField>
+
+**Returns:** `(True, "Libro eliminado correctamente.")` on success, or `(False, message)` on error.
+
+<Warning>
+  Returns `(False, "No se puede eliminar: el libro tiene préstamos activos.")` when `devuelto = 0` loans exist. All `reserva` rows for the book are deleted in the same transaction as the book itself.
+</Warning>
+
+---
+
+### `obtener_libro_por_id(libro_id)`
+
+Fetches a single book by its primary key.
+
+<ParamField path="body.libro_id" type="integer" required>
+  ID of the book to fetch.
+</ParamField>
+
+**Returns:** A tuple `(id, titulo, autor, isbn, genero)`, or `None` if not found.
+
+---
+
+### `obtener_libros()`
+
+Returns all books that are currently available for loan (`disponible = 1`).
+
+**Returns:** A list of tuples `(id, titulo, autor, isbn, genero)`. Returns an empty list when no available books exist.
+
+---
+
+### `obtener_todos_libros()`
+
+Returns all books regardless of availability status.
+
+**Returns:** A list of tuples `(id, titulo, autor, isbn, genero, disponible)`.
+
+---
+
+### `buscar_por_isbn(isbn)`
+
+Searches for books by exact ISBN match.
+
+<ParamField path="body.isbn" type="string" required>
+  ISBN value to search for.
+</ParamField>
+
+**Returns:** A list of tuples `(id, titulo, autor, isbn, genero, disponible)`. Because `isbn` is unique, this will contain at most one item.
+
+---
+
+## Users
+
+### `registrar_usuario(nombre, carrera)`
+
+Inserts a new library member into the `usuario` table.
+
+<ParamField path="body.nombre" type="string" required>
+  Full name of the member.
+</ParamField>
+
+<ParamField path="body.carrera" type="string" required>
+  Academic career or programme.
+</ParamField>
+
+**Returns:** `(True, "Usuario registrado correctamente.")` on success, or `(False, message)` on error.
+
+---
+
+### `editar_usuario(usuario_id, nombre, carrera)`
+
+Updates the name and career of an existing member in a single atomic operation.
+
+```python
+def editar_usuario(self, usuario_id, nombre, carrera):
+    """ACID – Atomicidad: actualiza nombre y carrera juntos o falla."""
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE usuario SET nombre = ?, carrera = ? WHERE id = ?
+        """, (nombre, carrera, usuario_id))
+        conn.commit()
+        conn.close()
+        return True, "Usuario actualizado correctamente."
+    except Exception as e:
+        return False, f"Error: {e}"
+```
+
+<ParamField path="body.usuario_id" type="integer" required>
+  ID of the user to update.
+</ParamField>
+
+<ParamField path="body.nombre" type="string" required>
+  New full name.
+</ParamField>
+
+<ParamField path="body.carrera" type="string" required>
+  New academic career.
+</ParamField>
+
+**Returns:** `(True, "Usuario actualizado correctamente.")` on success, or `(False, message)` on error.
+
+---
+
+### `eliminar_usuario(usuario_id)`
+
+Deletes a user and their pending reservations. Blocked if the user has active loans.
+
+<ParamField path="body.usuario_id" type="integer" required>
+  ID of the user to delete.
+</ParamField>
+
+**Returns:** `(True, "Usuario eliminado correctamente.")` on success, or `(False, message)` on error.
+
+<Warning>
+  Returns `(False, "No se puede eliminar: el usuario tiene préstamos activos.")` when the user has loans where `devuelto = 0`. All `reserva` rows for the user are deleted in the same transaction as the user record.
+</Warning>
+
+---
+
+### `obtener_usuarios()`
+
+Returns all registered library members.
+
+**Returns:** A list of tuples `(id, nombre, carrera)`.
+
+---
+
+### `obtener_usuario_por_id(usuario_id)`
+
+Fetches a single user by primary key.
+
+<ParamField path="body.usuario_id" type="integer" required>
+  ID of the user to fetch.
+</ParamField>
+
+**Returns:** A tuple `(id, nombre, carrera)`, or `None` if not found.
+
+---
+
+## Loans
+
+### `realizar_prestamo(usuario_id, libro_id, fecha)`
+
+Creates a loan record and marks the book as unavailable in a single transaction. Both changes succeed or both are rolled back.
+
+```python
+def realizar_prestamo(self, usuario_id, libro_id, fecha):
+    """
+    ACID – Atomicidad: inserta el préstamo Y actualiza disponibilidad
+    en una sola transacción. Si una falla, ambas revierten.
+    """
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT disponible FROM libro WHERE id = ?", (libro_id,))
+        row = cursor.fetchone()
+        if not row or row[0] == 0:
+            conn.close()
+            return False, "El libro no está disponible."
+
+        cursor.execute("""
+            INSERT INTO prestamo (usuario_id, libro_id, fecha, devuelto)
+            VALUES (?, ?, ?, 0)
+        """, (usuario_id, libro_id, fecha))
+
+        cursor.execute(
+            "UPDATE libro SET disponible = 0 WHERE id = ?", (libro_id,)
+        )
+
+        conn.commit()
+        conn.close()
+        return True, "Préstamo registrado correctamente."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error: {e}"
+```
+
+<ParamField path="body.usuario_id" type="integer" required>
+  ID of the borrowing user.
+</ParamField>
+
+<ParamField path="body.libro_id" type="integer" required>
+  ID of the book to loan.
+</ParamField>
+
+<ParamField path="body.fecha" type="string" required>
+  Loan date in `DD/MM/YYYY` format. This value is used later by `calcular_multa()` to compute overdue days.
+</ParamField>
+
+**Returns:** `(True, "Préstamo registrado correctamente.")` on success, or `(False, message)` on error.
+
+<Warning>
+  Returns `(False, "El libro no está disponible.")` if `libro.disponible = 0` at the time of the call.
+</Warning>
+
+---
+
+### `cancelar_prestamo(prestamo_id)`
+
+Cancels an active (unreturned) loan, restores book availability, and removes any associated fine record — all in one transaction.
+
+```python
+def cancelar_prestamo(self, prestamo_id):
+    """
+    ACID – Atomicidad: al cancelar, revierte disponibilidad del libro
+    y elimina multa asociada si existe, todo en una transacción.
+    Solo se puede cancelar un préstamo NO devuelto.
+    """
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT libro_id, devuelto FROM prestamo WHERE id = ?",
+            (prestamo_id,)
+        )
+        row = cursor.fetchone()
+
+        if not row:
+            conn.close()
+            return False, "Préstamo no encontrado."
+        if row[1] == 1:
+            conn.close()
+            return False, "No se puede cancelar un préstamo ya devuelto."
+
+        libro_id = row[0]
+
+        cursor.execute("DELETE FROM multa WHERE prestamo_id = ?", (prestamo_id,))
+        cursor.execute("DELETE FROM prestamo WHERE id = ?", (prestamo_id,))
+        cursor.execute("UPDATE libro SET disponible = 1 WHERE id = ?", (libro_id,))
+
+        conn.commit()
+        conn.close()
+        return True, "Préstamo cancelado y libro liberado."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error: {e}"
+```
+
+<ParamField path="body.prestamo_id" type="integer" required>
+  ID of the loan to cancel.
+</ParamField>
+
+**Returns:** `(True, "Préstamo cancelado y libro liberado.")` on success, or `(False, message)` on error.
+
+<Warning>
+  Cannot cancel a loan where `devuelto = 1`. Use `devolver_libro()` instead for normal returns.
+</Warning>
+
+---
+
+### `obtener_prestamos()`
+
+Returns all loans joined with user and book data.
+
+**Returns:** A list of tuples `(id, usuario_nombre, libro_titulo, fecha, devuelto, libro_id)`.
+
+---
+
+## Returns and fines
+
+### `calcular_multa(fecha)`
+
+Calculates elapsed days and the fine amount for a loan date. No database access is performed.
+
+```python
+def calcular_multa(self, fecha):
+    try:
+        fecha_actual  = datetime.now()
+        fecha_prestamo = datetime.strptime(fecha, "%d/%m/%Y")
+        dias = (fecha_actual - fecha_prestamo).days
+        if dias > 7:
+            return dias, round((dias - 7) * 1.0, 2)
+        return dias, 0
+    except Exception:
+        return 0, 0
+```
+
+<ParamField path="body.fecha" type="string" required>
+  Loan date in `DD/MM/YYYY` format.
+</ParamField>
+
+**Returns:** A tuple `(dias, monto)` where:
+- `dias` — total days elapsed since the loan date.
+- `monto` — fine amount (`(dias - 7) * 1.0`, rounded to 2 decimal places). Returns `0` when `dias <= 7`.
+
+<Note>
+  The grace period is 7 days. Loans returned on or before day 7 incur no fine. If `fecha` cannot be parsed, the method returns `(0, 0)` rather than raising.
+</Note>
+
+---
+
+### `devolver_libro(prestamo_id, libro_id)`
+
+Marks a loan as returned, restores book availability, and inserts a fine record if overdue — all in a single transaction.
+
+```python
+def devolver_libro(self, prestamo_id, libro_id):
+    """
+    ACID – Atomicidad: marca devuelto, libera libro e inserta multa
+    en una sola transacción. Ningún paso parcial queda persistido.
+    """
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT fecha, devuelto FROM prestamo WHERE id = ?", (prestamo_id,))
+        resultado = cursor.fetchone()
+
+        if not resultado:
+            conn.close()
+            return False, "Préstamo no encontrado."
+        if resultado[1] == 1:
+            conn.close()
+            return False, "Este préstamo ya fue devuelto."
+
+        fecha = resultado[0]
+        dias, multa = self.calcular_multa(fecha)
+
+        if multa > 0:
+            cursor.execute("""
+                INSERT INTO multa (prestamo_id, dias_retraso, monto)
+                VALUES (?, ?, ?)
+            """, (prestamo_id, dias, multa))
+
+        cursor.execute(
+            "UPDATE prestamo SET devuelto = 1 WHERE id = ?", (prestamo_id,)
+        )
+        cursor.execute(
+            "UPDATE libro SET disponible = 1 WHERE id = ?", (libro_id,)
+        )
+
+        conn.commit()
+        conn.close()
+        return True, f"Libro devuelto. {'Multa: $' + str(multa) if multa > 0 else 'Sin multa.'}"
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error: {e}"
+```
+
+<ParamField path="body.prestamo_id" type="integer" required>
+  ID of the loan to close.
+</ParamField>
+
+<ParamField path="body.libro_id" type="integer" required>
+  ID of the book being returned. Used to reset `disponible = 1`.
+</ParamField>
+
+**Returns:** `(True, "Libro devuelto. Multa: $<monto>")` or `(True, "Libro devuelto. Sin multa.")` on success, or `(False, message)` on error.
+
+<Note>
+  A `multa` row is only inserted when `monto > 0`. Loans returned within 7 days do not generate a fine record.
+</Note>
+
+---
+
+## Reservations
+
+### `reservar_libro(usuario_id, libro_id)`
+
+Creates a pending reservation. Prevents duplicate pending reservations for the same user–book pair.
+
+```python
+def reservar_libro(self, usuario_id, libro_id):
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT COUNT(*) FROM reserva
+            WHERE usuario_id = ? AND libro_id = ? AND estado = 'Pendiente'
+        """, (usuario_id, libro_id))
+        if cursor.fetchone()[0] > 0:
+            conn.close()
+            return False, "Este usuario ya tiene una reserva pendiente para ese libro."
+
+        cursor.execute("""
+            INSERT INTO reserva (usuario_id, libro_id, fecha, estado)
+            VALUES (?, ?, DATE('now'), 'Pendiente')
+        """, (usuario_id, libro_id))
+
+        conn.commit()
+        conn.close()
+        return True, "Reserva registrada correctamente."
+    except Exception as e:
+        return False, f"Error: {e}"
+```
+
+<ParamField path="body.usuario_id" type="integer" required>
+  ID of the user making the reservation.
+</ParamField>
+
+<ParamField path="body.libro_id" type="integer" required>
+  ID of the book to reserve.
+</ParamField>
+
+**Returns:** `(True, "Reserva registrada correctamente.")` on success, or `(False, message)` on error.
+
+<Warning>
+  Returns `(False, "Este usuario ya tiene una reserva pendiente para ese libro.")` if a reservation with `estado = 'Pendiente'` already exists for the same user–book pair.
+</Warning>
+
+---
+
+### `cancelar_reserva(reserva_id)`
+
+Deletes a reservation record.
+
+<ParamField path="body.reserva_id" type="integer" required>
+  ID of the reservation to cancel.
+</ParamField>
+
+**Returns:** `(True, "Reserva cancelada.")` on success, or `(False, message)` on error.
+
+---
+
+### `obtener_reservas()`
+
+Returns all reservations joined with user and book data.
+
+**Returns:** A list of tuples `(id, usuario_nombre, libro_titulo, fecha, estado)`.
+
+---
+
+## Donations
+
+### `registrar_donacion(titulo, autor, isbn, genero, donante)`
+
+Creates a `libro` row and a `donacion` row in a single transaction. If either insert fails, both are rolled back.
+
+```python
+def registrar_donacion(self, titulo, autor, isbn, genero, donante):
+    """
+    ACID – Atomicidad: crea el libro Y registra la donación juntos.
+    Si una falla, ninguna persiste.
+    """
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT INTO libro (titulo, autor, isbn, genero, disponible)
+            VALUES (?, ?, ?, ?, 1)
+        """, (titulo, autor, isbn or None, genero))
+
+        libro_id = cursor.lastrowid
+
+        cursor.execute("""
+            INSERT INTO donacion (libro_id, donante, fecha)
+            VALUES (?, ?, DATE('now'))
+        """, (libro_id, donante))
+
+        conn.commit()
+        conn.close()
+        return True, "Donación registrada correctamente."
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        conn.close()
+        return False, "Ya existe un libro con ese ISBN."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error: {e}"
+```
+
+<ParamField path="body.titulo" type="string" required>
+  Title of the donated book.
+</ParamField>
+
+<ParamField path="body.autor" type="string" required>
+  Author of the donated book.
+</ParamField>
+
+<ParamField path="body.isbn" type="string" required>
+  ISBN of the donated book. An empty string is stored as `NULL`.
+</ParamField>
+
+<ParamField path="body.genero" type="string" required>
+  Genre of the donated book.
+</ParamField>
+
+<ParamField path="body.donante" type="string" required>
+  Name of the donor.
+</ParamField>
+
+**Returns:** `(True, "Donación registrada correctamente.")` on success, or `(False, message)` on error.
+
+<Warning>
+  Returns `(False, "Ya existe un libro con ese ISBN.")` on an ISBN uniqueness violation. Both the `libro` and `donacion` inserts are rolled back.
+</Warning>
+
+---
+
+### `obtener_donaciones()`
+
+Returns all donation records joined with the corresponding book data.
+
+**Returns:** A list of tuples `(id, titulo, autor, donante, fecha)`.
+
+---
+
+## Ranking and alerts
+
+### `ranking_libros()`
+
+Aggregates loan counts per book and returns them sorted from most to least borrowed.
+
+```python
+def ranking_libros(self):
+    conn = self.conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT l.titulo, l.autor, COUNT(*) as total
+        FROM prestamo p
+        JOIN libro l ON p.libro_id = l.id
+        GROUP BY l.id
+        ORDER BY total DESC
+    """)
+    datos = cursor.fetchall()
+    conn.close()
+    return datos
+```
+
+**Returns:** A list of tuples `(titulo, autor, total)` ordered by `total` descending. Books with no loan history are not included.
+
+---
+
+### `obtener_prestamos_por_vencer()`
+
+Scans all active (unreturned) loans and returns the titles of books that are within one day of or past the 7-day grace period.
+
+```python
+def obtener_prestamos_por_vencer(self):
+    prestamos = self.obtener_prestamos()
+    alertas = []
+    for p in prestamos:
+        if not p[4]:  # devuelto == 0
+            dias, _ = self.calcular_multa(p[3])
+            if dias >= 6:
+                alertas.append(p[2])  # titulo
+    return alertas
+```
+
+**Returns:** A list of book titles (`str`) where the loan has been active for 6 or more days. A loan at day 6 is one day from the fine threshold; at day 8 it is already overdue.
+
+<Note>
+  This method calls `obtener_prestamos()` and `calcular_multa()` internally. It does not open an additional connection.
+</Note>

@@ -1,0 +1,110 @@
+---
+title: "Reservations"
+description: "Reserving unavailable books"
+---
+
+A reservation (`reserva`) allows a user to queue for a book that is currently on loan. The reservation system intentionally targets only unavailable books — the `VistaReservas` combo box is populated exclusively from books where `disponible = 0`.
+
+## Reservation flow
+
+<Steps>
+  <Step title="User selects an unavailable book">
+    In the `VistaReservas` form, the user picks their name from the users combo box and an unavailable book from the books combo box.
+  </Step>
+  <Step title="System checks for duplicate reservations">
+    Before inserting, the controller queries for an existing `Pendiente` reservation for the same `(usuario_id, libro_id)` pair. If one already exists, the operation is rejected.
+  </Step>
+  <Step title="Reservation is created">
+    A new `reserva` row is inserted with `estado = 'Pendiente'` and `fecha = DATE('now')`.
+  </Step>
+  <Step title="Cancellation (optional)">
+    A librarian can cancel any reservation by selecting it in the table and clicking **Cancelar Reserva**. The row is deleted atomically.
+  </Step>
+</Steps>
+
+## Reservation fields
+
+| Field | Value |
+|---|---|
+| `usuario_id` | FK to `usuario.id` |
+| `libro_id` | FK to `libro.id` |
+| `fecha` | `DATE('now')` — set by SQLite at insert time |
+| `estado` | `'Pendiente'` on creation |
+
+The table in `VistaReservas` displays: ID, Usuario (name), Libro (title), Fecha, Estado. Pending rows are shown in purple; attended rows in green.
+
+## Operations
+
+### reservar_libro
+
+`reservar_libro(usuario_id, libro_id)` creates a new pending reservation, rejecting duplicates.
+
+```python
+def reservar_libro(self, usuario_id, libro_id):
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+
+        # Evitar reservas duplicadas (Consistencia)
+        cursor.execute("""
+            SELECT COUNT(*) FROM reserva
+            WHERE usuario_id = ? AND libro_id = ? AND estado = 'Pendiente'
+        """, (usuario_id, libro_id))
+        if cursor.fetchone()[0] > 0:
+            conn.close()
+            return False, "Este usuario ya tiene una reserva pendiente para ese libro."
+
+        cursor.execute("""
+            INSERT INTO reserva (usuario_id, libro_id, fecha, estado)
+            VALUES (?, ?, DATE('now'), 'Pendiente')
+        """, (usuario_id, libro_id))
+
+        conn.commit()
+        conn.close()
+        return True, "Reserva registrada correctamente."
+    except Exception as e:
+        return False, f"Error: {e}"
+```
+
+### cancelar_reserva
+
+`cancelar_reserva(reserva_id)` deletes the reservation record completely.
+
+```python
+def cancelar_reserva(self, reserva_id):
+    """ACID – Atomicidad: elimina la reserva completamente."""
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM reserva WHERE id = ?", (reserva_id,))
+        conn.commit()
+        conn.close()
+        return True, "Reserva cancelada."
+    except Exception as e:
+        return False, f"Error: {e}"
+```
+
+### obtener_reservas
+
+`obtener_reservas()` returns all reservations joined with user and book data.
+
+```python
+def obtener_reservas(self):
+    conn = self.conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT r.id, u.nombre, l.titulo, r.fecha, r.estado
+        FROM reserva r
+        JOIN usuario u ON r.usuario_id = u.id
+        JOIN libro l ON r.libro_id = l.id
+    """)
+    datos = cursor.fetchall()
+    conn.close()
+    return datos
+```
+
+Returns a list of `(id, nombre, titulo, fecha, estado)` tuples.
+
+<Note>
+  Reservations are also deleted automatically (as part of an atomic transaction) when the associated book or user is deleted — see the deletion logic in [Book catalog](/features/books) and [User management](/features/users).
+</Note>

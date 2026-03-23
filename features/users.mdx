@@ -1,0 +1,124 @@
+---
+title: "User management"
+description: "Managing library members"
+---
+
+Users (members) are the borrowers and reservers in the system. Each user record is intentionally minimal, storing only what is needed to identify the person and their academic context.
+
+| Field | Type | Constraint |
+|---|---|---|
+| `id` | INTEGER | Primary key, auto-increment |
+| `nombre` | TEXT | NOT NULL |
+| `carrera` | TEXT | NOT NULL |
+
+## UI: VistaUsuarios
+
+The `VistaUsuarios` view is a `CTkFrame` containing a toolbar and a `ttk.Treeview` table.
+
+**Toolbar** provides four actions:
+
+- **Registrar** — opens the add/edit form for a new user
+- **Editar** — opens the same form pre-populated with the selected row
+- **Eliminar** — prompts for confirmation, then calls the controller
+- **Generar QR** — generates a QR card image for the selected user (`qr_usuario_<id>.png`)
+
+**Table** — columns: ID, Nombre, Carrera. A total count label is displayed on the right side of the toolbar and updates after every data load.
+
+## Operations
+
+### Registrar usuario
+
+`registrar_usuario(nombre, carrera)` inserts a new user. Both fields are required. Returns a `(bool, message)` tuple.
+
+```python
+def registrar_usuario(self, nombre, carrera):
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO usuario (nombre, carrera) VALUES (?, ?)",
+            (nombre, carrera)
+        )
+        conn.commit()
+        conn.close()
+        return True, "Usuario registrado correctamente."
+    except Exception as e:
+        return False, f"Error: {e}"
+```
+
+### Editar usuario
+
+`editar_usuario(usuario_id, nombre, carrera)` updates both fields atomically — either both are saved or neither is.
+
+```python
+def editar_usuario(self, usuario_id, nombre, carrera):
+    """ACID – Atomicidad: actualiza nombre y carrera juntos o falla."""
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE usuario SET nombre = ?, carrera = ? WHERE id = ?
+        """, (nombre, carrera, usuario_id))
+        conn.commit()
+        conn.close()
+        return True, "Usuario actualizado correctamente."
+    except Exception as e:
+        return False, f"Error: {e}"
+```
+
+### Eliminar usuario
+
+`eliminar_usuario(usuario_id)` removes the user and all their pending reservations in a single transaction.
+
+```python
+def eliminar_usuario(self, usuario_id):
+    """
+    ACID – Consistencia: bloquea eliminación si tiene préstamos activos.
+    Esto protege la integridad referencial más allá de lo que SQLite haría.
+    """
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT COUNT(*) FROM prestamo
+            WHERE usuario_id = ? AND devuelto = 0
+        """, (usuario_id,))
+        activos = cursor.fetchone()[0]
+
+        if activos > 0:
+            conn.close()
+            return False, "No se puede eliminar: el usuario tiene préstamos activos."
+
+        # Transacción: eliminar reservas y luego el usuario
+        cursor.execute("DELETE FROM reserva WHERE usuario_id = ?", (usuario_id,))
+        cursor.execute("DELETE FROM usuario WHERE id = ?", (usuario_id,))
+
+        conn.commit()
+        conn.close()
+        return True, "Usuario eliminado correctamente."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error: {e}"
+```
+
+<Warning>
+  A user cannot be deleted while they have active (non-returned) loans. The controller checks `devuelto = 0` in the `prestamo` table before proceeding. If any active loan exists, the operation is aborted with `(False, "No se puede eliminar: el usuario tiene préstamos activos.")`. Open reservations for that user are deleted atomically alongside the user record once the check passes.
+</Warning>
+
+### Obtener usuarios
+
+`obtener_usuarios()` returns all users as a list of `(id, nombre, carrera)` tuples.
+
+```python
+def obtener_usuarios(self):
+    conn = self.conectar()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, nombre, carrera FROM usuario")
+    datos = cursor.fetchall()
+    conn.close()
+    return datos
+```
+
+A companion method `obtener_usuario_por_id(usuario_id)` returns a single `(id, nombre, carrera)` tuple for the edit form.

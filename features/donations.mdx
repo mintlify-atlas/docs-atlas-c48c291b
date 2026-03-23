@@ -1,0 +1,97 @@
+---
+title: "Donations"
+description: "Accepting donated books"
+---
+
+When someone donates a book, the system creates two records atomically: a `libro` entry in the book catalog and a `donacion` record that links the new book to the donor. If either insert fails, neither is persisted.
+
+## Donation fields
+
+**Book fields** (stored in the `libro` table):
+
+| Field | Notes |
+|---|---|
+| `titulo` | Required |
+| `autor` | Required |
+| `isbn` | Optional; must be unique if provided |
+| `genero` | Selected from the standard genre list |
+| `disponible` | Always set to `1` immediately on donation |
+
+**Donation fields** (stored in the `donacion` table):
+
+| Field | Notes |
+|---|---|
+| `libro_id` | FK to the newly created `libro` row (`cursor.lastrowid`) |
+| `donante` | Required; name of the donor |
+| `fecha` | `DATE('now')` — set by SQLite at insert time |
+
+## UI: VistaDonaciones
+
+The `VistaDonaciones` view provides a single **Registrar Donación** button that opens a modal form (`CTkToplevel`). The form collects Título, Autor, ISBN, Donante, and Género. Título, Autor, and Donante are mandatory. On success, the modal closes and the table refreshes automatically.
+
+The donation history table shows: ID, Título, Autor, Donante, Fecha.
+
+## Operations
+
+### registrar_donacion
+
+`registrar_donacion(titulo, autor, isbn, genero, donante)` inserts the book and the donation record together. The `libro_id` for the donation row is obtained from `cursor.lastrowid` immediately after the book insert.
+
+```python
+def registrar_donacion(self, titulo, autor, isbn, genero, donante):
+    """
+    ACID – Atomicidad: crea el libro Y registra la donación juntos.
+    Si una falla, ninguna persiste.
+    """
+    try:
+        conn = self.conectar()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT INTO libro (titulo, autor, isbn, genero, disponible)
+            VALUES (?, ?, ?, ?, 1)
+        """, (titulo, autor, isbn or None, genero))
+
+        libro_id = cursor.lastrowid
+
+        cursor.execute("""
+            INSERT INTO donacion (libro_id, donante, fecha)
+            VALUES (?, ?, DATE('now'))
+        """, (libro_id, donante))
+
+        conn.commit()
+        conn.close()
+        return True, "Donación registrada correctamente."
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        conn.close()
+        return False, "Ya existe un libro con ese ISBN."
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return False, f"Error: {e}"
+```
+
+<Note>
+  Donated books are immediately available for loan (`disponible = 1`). They appear in the book catalog and can be loaned or reserved like any other book.
+</Note>
+
+### obtener_donaciones
+
+`obtener_donaciones()` returns all donation records joined with the corresponding book data.
+
+```python
+def obtener_donaciones(self):
+    conn = self.conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT d.id, l.titulo, l.autor, d.donante, d.fecha
+        FROM donacion d
+        JOIN libro l ON d.libro_id = l.id
+    """)
+    datos = cursor.fetchall()
+    conn.close()
+    return datos
+```
+
+Returns a list of `(id, titulo, autor, donante, fecha)` tuples.

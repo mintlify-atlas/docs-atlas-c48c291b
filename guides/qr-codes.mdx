@@ -1,0 +1,48 @@
+---
+title: "QR codes"
+description: "Generate QR codes for user identification"
+---
+
+The `generar_qr(usuario_id)` utility creates a QR code image that encodes a user's ID. This image can be scanned to quickly identify a library user without manually entering their ID.
+
+## What is encoded
+
+The QR code encodes the string `USER:{usuario_id}`. For example, calling `generar_qr(42)` produces a QR code whose payload is the string `USER:42`.
+
+## Output
+
+The function saves the image as a PNG file named `qr_usuario_{usuario_id}.png` in the current working directory. For user 42, the output file is `qr_usuario_42.png`.
+
+## Requirements
+
+The `qrcode` package and its image dependency must be installed:
+
+```bash
+pip install qrcode pillow
+```
+
+## Source code
+
+```python utils/qr.py
+import qrcode
+
+def generar_qr(usuario_id):
+    img = qrcode.make(f"USER:{usuario_id}")
+    img.save(f"qr_usuario_{usuario_id}.png")
+```
+
+## Usage example
+
+```python
+from utils.qr import generar_qr
+
+generar_qr(42)  # creates qr_usuario_42.png
+```
+
+<Note>
+  The PNG file is saved in the **current working directory** at the time the function is called. When running the application normally, this is typically `EjercicioBiblioteca/EjercicioBiblioteca/`. Make sure you have write permissions in that directory.
+</Note>
+
+<Tip>
+  You can scan `qr_usuario_{id}.png` with any standard QR code reader app. The decoded text will be the string `USER:{id}` (e.g. `USER:42`), which you can use to look up the user in the database.
+</Tip>

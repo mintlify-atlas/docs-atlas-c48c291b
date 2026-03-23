@@ -1,80 +1,125 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Install dependencies and run Ejercicio Biblioteca in under five minutes"
 ---
 
-## Get started in three steps
+## Prerequisites
 
-Get your documentation site running locally and make your first customization.
+- Python 3.8 or newer
+- `pip` package manager
+- A terminal with access to the cloned repository
 
-### Step 1: Set up your local environment
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/stalyn129/EjercicioBiblioteca.git
+    cd EjercicioBiblioteca
+    ```
+  </Step>
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Install Python dependencies">
+    The application requires three packages: the CustomTkinter UI framework, the `qrcode` library for QR code generation, and `Pillow` as the image backend.
 
-### Step 2: Deploy your changes
+    ```bash
+    pip install customtkinter qrcode pillow
+    ```
+  </Step>
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+  <Step title="Navigate to the application directory">
+    The entry point is nested one level deeper inside the repository:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    ```bash
+    cd EjercicioBiblioteca/EjercicioBiblioteca
+    ```
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    Your working directory should contain `main_tk.py`, the `Modelo/`, `Controlador/`, `VistaTk/`, and `utils/` folders.
+  </Step>
 
-### Step 3: Go live
+  <Step title="Run the application">
+    ```bash
+    python main_tk.py
+    ```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    The application opens a 1200x720 window titled **Sistema de Biblioteca** with a dark sidebar on the left and the Loans view loaded by default.
+  </Step>
 
-## Next steps
+  <Step title="Database initialisation">
+    On first launch, `main_tk.py` calls `crear_conexion()` before starting the UI loop:
 
-Now that you have your docs running, explore these key features:
+    ```python main_tk.py
+    if __name__ == "__main__":
+        crear_conexion()
+        app = App()
+        app.mainloop()
+    ```
+
+    This creates `biblioteca.db` in the current working directory and bootstraps all six tables:
+
+    | Table | Purpose |
+    |---|---|
+    | `usuario` | Library members (nombre, carrera) |
+    | `libro` | Book catalog (titulo, autor, isbn UNIQUE, genero, disponible) |
+    | `prestamo` | Loan records (usuario_id, libro_id, fecha, devuelto) |
+    | `multa` | Overdue fines (prestamo_id, dias_retraso, monto) |
+    | `reserva` | Book reservations (usuario_id, libro_id, fecha, estado) |
+    | `donacion` | Donation records (libro_id, donante, fecha) |
+
+    <Note>
+      The `biblioteca.db` file is created in whichever directory you run `python main_tk.py` from. Always run the command from inside `EjercicioBiblioteca/EjercicioBiblioteca/` so relative imports and the database path resolve correctly.
+    </Note>
+  </Step>
+</Steps>
+
+## What to do next
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Book catalog" icon="book" href="/features/books">
+    Register your first books and search by ISBN.
+  </Card>
+  <Card title="Users" icon="user" href="/features/users">
+    Add library members before creating loans.
+  </Card>
+  <Card title="Loans" icon="book-open" href="/features/loans">
+    Issue loans, process returns, and track fines.
+  </Card>
+  <Card title="CSV import" icon="file-csv" href="/guides/csv-import">
+    Bulk-load a book catalog from a CSV file.
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="ModuleNotFoundError: No module named 'customtkinter'">
+    You need to install CustomTkinter before running the app:
+
+    ```bash
+    pip install customtkinter
+    ```
+
+    If you are using a virtual environment, make sure it is activated before installing.
+  </Accordion>
+
+  <Accordion title="ModuleNotFoundError: No module named 'qrcode'">
+    The QR code utility requires the `qrcode` and `Pillow` packages:
+
+    ```bash
+    pip install qrcode pillow
+    ```
+  </Accordion>
+
+  <Accordion title="sqlite3.OperationalError: unable to open database file">
+    This usually means you are running `python main_tk.py` from the wrong directory. Make sure your current directory is `EjercicioBiblioteca/EjercicioBiblioteca/` — the folder that contains `main_tk.py` directly.
+  </Accordion>
+
+  <Accordion title="ModuleNotFoundError: No module named 'Modelo' or 'Controlador'">
+    The application uses relative imports that only work from the correct working directory. Run:
+
+    ```bash
+    cd path/to/EjercicioBiblioteca/EjercicioBiblioteca
+    python main_tk.py
+    ```
+
+    Do not run it as `python EjercicioBiblioteca/EjercicioBiblioteca/main_tk.py` from a parent directory.
+  </Accordion>
+</AccordionGroup>
