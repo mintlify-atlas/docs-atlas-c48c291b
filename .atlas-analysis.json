@@ -1,0 +1,99 @@
+{
+  "projectType": "general",
+  "projectName": "Ejercicio Biblioteca",
+  "projectDescription": "A desktop library management system built with Python, CustomTkinter, and SQLite, providing full CRUD operations for books, users, loans, reservations, and donations.",
+  "theme": "almond",
+  "primaryColor": "#7c3aed",
+  "lightColor": "#a78bfa",
+  "darkColor": "#0f0f17",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart"]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/books",
+              "features/users",
+              "features/loans",
+              "features/reservations",
+              "features/donations",
+              "features/ranking"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/csv-import",
+              "guides/qr-codes",
+              "guides/fines"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Data Model",
+            "pages": [
+              "reference/database-schema",
+              "reference/models"
+            ]
+          },
+          {
+            "group": "Controller API",
+            "pages": [
+              "reference/controller"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Book catalog management with ISBN uniqueness enforcement",
+    "User registration and management with career tracking",
+    "Loan system with availability checks and ACID-compliant transactions",
+    "Automatic fine calculation for overdue books (after 7 days)",
+    "Book reservation system with duplicate reservation prevention",
+    "Donation tracking that links donated books to the catalog",
+    "Reading ranking based on loan history",
+    "Overdue loan alerts for loans approaching or past the due date",
+    "CSV bulk import for books",
+    "QR code generation for user identification",
+    "Dark-themed CustomTkinter desktop GUI with sidebar navigation"
+  ],
+  "publicApiSurface": [
+    "ControladorBiblioteca.registrar_libro(titulo, autor, isbn, genero)",
+    "ControladorBiblioteca.editar_libro(libro_id, titulo, autor, isbn, genero)",
+    "ControladorBiblioteca.eliminar_libro(libro_id)",
+    "ControladorBiblioteca.obtener_libros()",
+    "ControladorBiblioteca.obtener_todos_libros()",
+    "ControladorBiblioteca.buscar_por_isbn(isbn)",
+    "ControladorBiblioteca.registrar_usuario(nombre, carrera)",
+    "ControladorBiblioteca.editar_usuario(usuario_id, nombre, carrera)",
+    "ControladorBiblioteca.eliminar_usuario(usuario_id)",
+    "ControladorBiblioteca.obtener_usuarios()",
+    "ControladorBiblioteca.realizar_prestamo(usuario_id, libro_id, fecha)",
+    "ControladorBiblioteca.devolver_libro(prestamo_id, libro_id)",
+    "ControladorBiblioteca.cancelar_prestamo(prestamo_id)",
+    "ControladorBiblioteca.calcular_multa(fecha)",
+    "ControladorBiblioteca.obtener_prestamos()",
+    "ControladorBiblioteca.reservar_libro(usuario_id, libro_id)",
+    "ControladorBiblioteca.cancelar_reserva(reserva_id)",
+    "ControladorBiblioteca.obtener_reservas()",
+    "ControladorBiblioteca.registrar_donacion(titulo, autor, isbn, genero, donante)",
+    "ControladorBiblioteca.obtener_donaciones()",
+    "ControladorBiblioteca.ranking_libros()",
+    "ControladorBiblioteca.obtener_prestamos_por_vencer()",
+    "importar_csv(ruta)",
+    "generar_qr(usuario_id)",
+    "crear_conexion()"
+  ]
+}
