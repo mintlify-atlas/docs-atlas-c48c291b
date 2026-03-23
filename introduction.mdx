@@ -43,33 +43,27 @@ The `App` class in `main_tk.py` is the application entry point. It initialises t
 | **Python 3.8+** | Application runtime |
 | **CustomTkinter** | Modern Tkinter wrapper for the desktop UI |
 | **SQLite 3** | Embedded relational database (`biblioteca.db`) |
-| **qrcode / Pillow** | QR code generation for book and loan records |
+| **qrcode / Pillow** | QR code generation for user identification cards |
 
 The UI uses CustomTkinter's `dark` appearance mode with the `blue` default color theme. All widgets share a centralised color palette defined in `main_tk.py`:
 
-<Color variant="table">
-  <Color.Row title="Backgrounds">
-    <Color.Item name="bg_principal" value="#0f0f17" />
-    <Color.Item name="bg_sidebar" value="#13131f" />
-    <Color.Item name="bg_card" value="#1a1a2e" />
-    <Color.Item name="bg_hover" value="#22223b" />
-  </Color.Row>
-  <Color.Row title="Accent">
-    <Color.Item name="acento" value="#7c3aed" />
-    <Color.Item name="acento_claro" value="#a78bfa" />
-    <Color.Item name="acento2" value="#06b6d4" />
-  </Color.Row>
-  <Color.Row title="Text">
-    <Color.Item name="texto" value="#e2e8f0" />
-    <Color.Item name="texto_dim" value="#94a3b8" />
-    <Color.Item name="borde" value="#2d2d44" />
-  </Color.Row>
-  <Color.Row title="Status">
-    <Color.Item name="exito" value="#10b981" />
-    <Color.Item name="alerta" value="#f59e0b" />
-    <Color.Item name="error" value="#ef4444" />
-  </Color.Row>
-</Color>
+| Key | Hex | Purpose |
+|---|---|---|
+| `bg_principal` | `#0f0f17` | Main window background |
+| `bg_sidebar` | `#13131f` | Sidebar background |
+| `bg_card` | `#1a1a2e` | Card and panel backgrounds |
+| `bg_hover` | `#22223b` | Hover and input field background |
+| `acento` | `#7c3aed` | Primary purple accent (active states, buttons) |
+| `acento_claro` | `#a78bfa` | Light purple accent (headings, highlighted text) |
+| `acento2` | `#06b6d4` | Cyan secondary accent |
+| `texto` | `#e2e8f0` | Primary text colour |
+| `texto_dim` | `#94a3b8` | Muted label text |
+| `borde` | `#2d2d44` | Border and separator colour |
+| `exito` | `#10b981` | Success / available indicator |
+| `alerta` | `#f59e0b` | Warning / alert indicator |
+| `error` | `#ef4444` | Error / delete / overdue indicator |
+
+The sidebar (`VistaTk/sidebar.py`) is collapsible. Clicking the toggle button (◀/▶) animates the sidebar between expanded (220 px, full labels) and collapsed (62 px, icons only with tooltips on hover) states. The active section is highlighted with the `acento` colour and a left-edge indicator bar.
 
 ## Module overview
 

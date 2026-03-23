@@ -22,6 +22,13 @@ The `VistaLibros` view is a `CTkFrame` that provides the full book management in
 
 **Book table** — a `ttk.Treeview` showing columns: ID, Título, Autor, ISBN, Género, and Disponible. Available books are highlighted in green; unavailable books in a muted tone. A row count label is kept in sync after every data load.
 
+The genre dropdown contains a fixed list of 9 options defined in `libros.py`:
+
+```python
+GENEROS = ["Ingeniería", "Medicina", "Ciencias", "Literatura",
+           "Historia", "Matemáticas", "Arte", "Tecnología", "Otro"]
+```
+
 **Action buttons** — the toolbar on the right side of the search bar provides:
 
 - **Agregar** — opens the reusable add/edit form for a new book

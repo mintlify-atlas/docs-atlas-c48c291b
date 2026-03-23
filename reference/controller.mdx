@@ -646,8 +646,8 @@ def registrar_donacion(self, titulo, autor, isbn, genero, donante):
   Author of the donated book.
 </ParamField>
 
-<ParamField path="body.isbn" type="string" required>
-  ISBN of the donated book. An empty string is stored as `NULL`.
+<ParamField path="body.isbn" type="string">
+  ISBN of the donated book. Optional — an empty string is stored as `NULL` to avoid false uniqueness conflicts.
 </ParamField>
 
 <ParamField path="body.genero" type="string" required>
